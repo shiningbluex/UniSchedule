@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">UniHorario</string>
+    <string name="title_activity_main">UniHorario</string>
+    <string name="package_name">com.unihorario.planner</string>
+    <string name="custom_url_scheme">com.unihorario.planner</string>
+</resources>
