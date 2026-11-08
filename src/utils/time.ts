@@ -1,5 +1,56 @@
 import type { ScheduleActivity, DayOfWeek, CourseSection } from '../types/schedule';
 
+export function normalizeHour(h: number, referenceStartHour?: number): number {
+  if (referenceStartHour !== undefined) {
+    // If end hour is less than or equal to start hour, and end hour is 12h ambiguous (e.g. 1 to 11):
+    // e.g. start is 11, end is 1 -> end becomes 13 (1 PM)
+    // e.g. start is 11, end is 2 -> end becomes 14 (2 PM)
+    // e.g. start is 12, end is 1 -> end becomes 13 (1 PM)
+    // e.g. start is 12, end is 2 -> end becomes 14 (2 PM)
+    // e.g. start is 10, end is 1 -> end becomes 13 (1 PM)
+    // e.g. start is 10, end is 2 -> end becomes 14 (2 PM)
+    if (h <= referenceStartHour && h <= 12) {
+      if (h + 12 <= 23 && h + 12 > referenceStartHour) {
+        return h + 12;
+      }
+    }
+  } else {
+    // If standalone hour is between 1 and 6, in university schedules it's PM (13..18)
+    if (h >= 1 && h <= 6) {
+      return h + 12;
+    }
+  }
+  return h;
+}
+
+export function normalizeTimeString(timeStr: string, referenceStartTime?: string): string {
+  if (!timeStr) return '09:00';
+  let [h, m] = timeStr.split(':').map(Number);
+  h = isNaN(h) ? 0 : h;
+  m = isNaN(m) ? 0 : m;
+
+  let refH: number | undefined = undefined;
+  if (referenceStartTime) {
+    const [startH] = referenceStartTime.split(':').map(Number);
+    refH = isNaN(startH) ? undefined : startH;
+  }
+
+  h = normalizeHour(h, refH);
+  return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+}
+
+export function getSlotMinutes(startTime: string, endTime: string): { startMin: number; endMin: number } {
+  const normStart = normalizeTimeString(startTime);
+  const normEnd = normalizeTimeString(endTime, normStart);
+  let s = timeToMinutes(normStart);
+  let e = timeToMinutes(normEnd);
+  if (e <= s) {
+    // Fallback if still invalid: minimum 1 hour duration
+    e = Math.min(24 * 60, s + 60);
+  }
+  return { startMin: s, endMin: e };
+}
+
 export function timeToMinutes(timeStr: string): number {
   if (!timeStr) return 0;
   const [h, m] = timeStr.split(':').map(Number);
@@ -18,10 +69,8 @@ export function doSlotsOverlap(
   startB: string,
   endB: string
 ): boolean {
-  const aStart = timeToMinutes(startA);
-  const aEnd = timeToMinutes(endA);
-  const bStart = timeToMinutes(startB);
-  const bEnd = timeToMinutes(endB);
+  const { startMin: aStart, endMin: aEnd } = getSlotMinutes(startA, endA);
+  const { startMin: bStart, endMin: bEnd } = getSlotMinutes(startB, endB);
 
   return Math.max(aStart, bStart) < Math.min(aEnd, bEnd);
 }
@@ -76,10 +125,10 @@ export function computeDayActivitiesLayout(
 
   // Sort activities by start time
   const sorted = [...activities].sort((a, b) => {
-    const sA = timeToMinutes(a.startTime);
-    const sB = timeToMinutes(b.startTime);
+    const sA = getSlotMinutes(a.startTime, a.endTime).startMin;
+    const sB = getSlotMinutes(b.startTime, b.endTime).startMin;
     if (sA !== sB) return sA - sB;
-    return timeToMinutes(b.endTime) - timeToMinutes(a.endTime);
+    return getSlotMinutes(b.startTime, b.endTime).endMin - getSlotMinutes(a.startTime, a.endTime).endMin;
   });
 
   // Find all pairwise overlaps
@@ -126,7 +175,6 @@ export function computeDayActivitiesLayout(
 
   // Assign column index and superposition geometry
   for (const cluster of clusters) {
-    // Greedy coloring for columns inside cluster
     const colAssigned = new Map<number, number>();
     for (const idx of cluster) {
       const usedCols = new Set<number>();
@@ -151,8 +199,7 @@ export function computeDayActivitiesLayout(
       const clashingNeighbors = (overlaps.get(idx) || []).map((n) => sorted[n]);
       const hasClash = clashingNeighbors.length > 0;
 
-      const startMin = timeToMinutes(act.startTime);
-      const endMin = timeToMinutes(act.endTime);
+      const { startMin, endMin } = getSlotMinutes(act.startTime, act.endTime);
       const dayStartMin = startHour * 60;
       const topPx = ((startMin - dayStartMin) / 60) * hourRowHeight;
       const heightPx = Math.max(28, ((endMin - startMin) / 60) * hourRowHeight);
@@ -163,7 +210,6 @@ export function computeDayActivitiesLayout(
       let isDarkened = false;
 
       if (hasClash && totalCols > 1) {
-        // Superpose blocks: col 0 starts at left, col 1 is shifted right and superposed
         if (totalCols === 2) {
           if (col === 0) {
             leftPercent = 2;
@@ -177,7 +223,6 @@ export function computeDayActivitiesLayout(
             isDarkened = true; // darkened to notice the superposition
           }
         } else {
-          // 3 or more overlaps
           const step = 85 / totalCols;
           leftPercent = Math.min(60, 2 + col * step * 0.7);
           widthPercent = Math.max(50, 96 - (totalCols - 1) * 15);
@@ -218,10 +263,11 @@ export function formatSectionDaysSummary(section: CourseSection): string {
     domingo: 'Domingo',
   };
 
-  // Group by time range
   const timeGroups: Record<string, string[]> = {};
   section.slots.forEach((slot) => {
-    const range = `${slot.startTime} - ${slot.endTime}`;
+    const normStart = normalizeTimeString(slot.startTime);
+    const normEnd = normalizeTimeString(slot.endTime, normStart);
+    const range = `${normStart} - ${normEnd}`;
     if (!timeGroups[range]) {
       timeGroups[range] = [];
     }
@@ -248,8 +294,7 @@ export function calculateScheduleMetrics(activities: ScheduleActivity[], activeD
   };
 
   activities.forEach((act) => {
-    const s = timeToMinutes(act.startTime);
-    const e = timeToMinutes(act.endTime);
+    const { startMin: s, endMin: e } = getSlotMinutes(act.startTime, act.endTime);
     if (e > s) {
       totalMinutes += (e - s);
       daysWithClass.add(act.day);

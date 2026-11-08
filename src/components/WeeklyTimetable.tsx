@@ -21,6 +21,7 @@ import {
   findScheduleClashes,
   calculateScheduleMetrics,
   computeDayActivitiesLayout,
+  normalizeTimeString,
 } from '../utils/time';
 import { downloadICSFile } from '../utils/icsExport';
 import { toPng } from 'html-to-image';
@@ -375,7 +376,7 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
                               <div className="flex items-center gap-1 text-[11px] font-medium text-white/90 drop-shadow-sm">
                                 <Clock className="w-3 h-3 flex-shrink-0" />
                                 <span>
-                                  {act.startTime} - {act.endTime}
+                                  {normalizeTimeString(act.startTime)} - {normalizeTimeString(act.endTime, act.startTime)}
                                 </span>
                               </div>
 
