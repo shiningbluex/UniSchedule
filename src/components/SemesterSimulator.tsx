@@ -26,6 +26,7 @@ import {
   computeDayActivitiesLayout,
   formatSectionDaysSummary,
   normalizeTimeString,
+  getSlotMinutes,
 } from '../utils/time';
 import confetti from 'canvas-confetti';
 
@@ -63,7 +64,19 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
   };
 
   const selectedCoursesList = useMemo(() => {
-    return courses.filter((c) => selectedCourseIds.includes(c.id));
+    return courses
+      .filter((c) => selectedCourseIds.includes(c.id))
+      .map((course) => ({
+        ...course,
+        sections: course.sections.map((sec) => ({
+          ...sec,
+          slots: sec.slots.map((slot) => {
+            const normStart = normalizeTimeString(slot.startTime);
+            const normEnd = normalizeTimeString(slot.endTime, normStart);
+            return { ...slot, startTime: normStart, endTime: normEnd };
+          }),
+        })),
+      }));
   }, [courses, selectedCourseIds]);
 
   // Generate combinations
@@ -110,13 +123,38 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
   };
 
   const visibleDays = DAYS_CONFIG.filter((d) => d.id !== 'domingo');
-  const startHour = 7;
-  const endHour = 20;
+  const startHour = useMemo(() => {
+    let minH = 7;
+    if (activeCombo) {
+      activeCombo.activities.forEach((act) => {
+        const { startMin } = getSlotMinutes(act.startTime, act.endTime);
+        const h = Math.floor(startMin / 60);
+        if (h < minH) minH = Math.max(0, h);
+      });
+    }
+    return minH;
+  }, [activeCombo]);
+
+  const endHour = useMemo(() => {
+    let maxH = 20;
+    if (activeCombo) {
+      activeCombo.activities.forEach((act) => {
+        const { endMin } = getSlotMinutes(act.startTime, act.endTime);
+        const h = Math.ceil(endMin / 60);
+        if (h > maxH) maxH = Math.min(23, h);
+      });
+    }
+    return maxH;
+  }, [activeCombo]);
+
   const hourRowHeight = 40;
-  const hoursRange: number[] = [];
-  for (let h = startHour; h <= endHour; h++) {
-    hoursRange.push(h);
-  }
+  const hoursRange: number[] = useMemo(() => {
+    const range: number[] = [];
+    for (let h = startHour; h <= endHour; h++) {
+      range.push(h);
+    }
+    return range;
+  }, [startHour, endHour]);
 
   return (
     <div className="space-y-6">

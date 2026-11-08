@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -22,6 +22,7 @@ import {
   calculateScheduleMetrics,
   computeDayActivitiesLayout,
   normalizeTimeString,
+  getSlotMinutes,
 } from '../utils/time';
 import { downloadICSFile } from '../utils/icsExport';
 import { toPng } from 'html-to-image';
@@ -53,16 +54,39 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
   const [selectedMobileDay, setSelectedMobileDay] = useState<DayOfWeek | 'all'>('all');
   const [isExporting, setIsExporting] = useState(false);
 
+  const effectiveStartHour = useMemo(() => {
+    let minH = startHour;
+    activities.forEach((act) => {
+      const { startMin } = getSlotMinutes(act.startTime, act.endTime);
+      const h = Math.floor(startMin / 60);
+      if (h < minH) minH = Math.max(0, h);
+    });
+    return minH;
+  }, [activities, startHour]);
+
+  const effectiveEndHour = useMemo(() => {
+    let maxH = endHour;
+    activities.forEach((act) => {
+      const { endMin } = getSlotMinutes(act.startTime, act.endTime);
+      const h = Math.ceil(endMin / 60);
+      if (h > maxH) maxH = Math.min(23, h);
+    });
+    return maxH;
+  }, [activities, endHour]);
+
   const visibleDays = DAYS_CONFIG.filter((d) => (d.id === 'domingo' ? includeSunday : true));
   const clashMap = findScheduleClashes(activities);
 
   const activeDayIds = visibleDays.map((d) => d.id);
   const metrics = calculateScheduleMetrics(activities, activeDayIds);
 
-  const hoursRange: number[] = [];
-  for (let h = startHour; h <= endHour; h++) {
-    hoursRange.push(h);
-  }
+  const hoursRange: number[] = useMemo(() => {
+    const range: number[] = [];
+    for (let h = effectiveStartHour; h <= effectiveEndHour; h++) {
+      range.push(h);
+    }
+    return range;
+  }, [effectiveStartHour, effectiveEndHour]);
 
   const hourRowHeight = 60;
 
@@ -251,7 +275,7 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
         <div className="overflow-x-auto">
           <div
             className="min-w-[760px] select-none"
-            style={{ minHeight: `${(endHour - startHour) * hourRowHeight + 50}px` }}
+            style={{ minHeight: `${(effectiveEndHour - effectiveStartHour) * hourRowHeight + 50}px` }}
           >
             {/* Header row with Days */}
             <div className="grid grid-cols-[70px_repeat(auto-fit,minmax(110px,1fr))] border-b border-slate-800 sticky top-0 z-20 bg-[#121625]">
@@ -294,7 +318,7 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
                   const dayActivities = activities.filter((act) => act.day === day.id);
                   const dayLayouts = computeDayActivitiesLayout(
                     dayActivities,
-                    startHour,
+                    effectiveStartHour,
                     hourRowHeight
                   );
 
@@ -303,7 +327,7 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
                       key={day.id}
                       className="relative border-r border-slate-800/80 last:border-r-0 hover:bg-slate-900/10 transition"
                       style={{
-                        height: `${(endHour - startHour + 1) * hourRowHeight}px`,
+                        height: `${(effectiveEndHour - effectiveStartHour + 1) * hourRowHeight}px`,
                       }}
                     >
                       {/* Grid guidelines */}

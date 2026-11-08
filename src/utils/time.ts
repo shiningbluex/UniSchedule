@@ -2,20 +2,24 @@ import type { ScheduleActivity, DayOfWeek, CourseSection } from '../types/schedu
 
 export function normalizeHour(h: number, referenceStartHour?: number): number {
   if (referenceStartHour !== undefined) {
-    // If end hour is less than or equal to start hour, and end hour is 12h ambiguous (e.g. 1 to 11):
+    // If end hour is less than or equal to start hour and <= 12:
     // e.g. start is 11, end is 1 -> end becomes 13 (1 PM)
     // e.g. start is 11, end is 2 -> end becomes 14 (2 PM)
-    // e.g. start is 12, end is 1 -> end becomes 13 (1 PM)
+    // e.g. start is 11, end is 4 -> end becomes 16 (4 PM)
     // e.g. start is 12, end is 2 -> end becomes 14 (2 PM)
-    // e.g. start is 10, end is 1 -> end becomes 13 (1 PM)
-    // e.g. start is 10, end is 2 -> end becomes 14 (2 PM)
+    // e.g. start is 13, end is 4 -> end becomes 16 (4 PM)
+    // e.g. start is 13, end is 16 -> stays 16
     if (h <= referenceStartHour && h <= 12) {
       if (h + 12 <= 23 && h + 12 > referenceStartHour) {
         return h + 12;
       }
+    } else if (h >= 1 && h <= 6) {
+      // Standalone afternoon hours (1 PM to 6 PM)
+      return h + 12;
     }
   } else {
-    // If standalone hour is between 1 and 6, in university schedules it's PM (13..18)
+    // Standalone hour (e.g. start time):
+    // In university schedules, 1, 2, 3, 4, 5, 6 AM do not exist, they are PM (13..18)
     if (h >= 1 && h <= 6) {
       return h + 12;
     }
@@ -25,14 +29,18 @@ export function normalizeHour(h: number, referenceStartHour?: number): number {
 
 export function normalizeTimeString(timeStr: string, referenceStartTime?: string): string {
   if (!timeStr) return '09:00';
-  let [h, m] = timeStr.split(':').map(Number);
-  h = isNaN(h) ? 0 : h;
+  const clean = timeStr.trim();
+  const parts = clean.split(':');
+  let h = parseInt(parts[0], 10);
+  let m = parts.length > 1 ? parseInt(parts[1], 10) : 0;
+  h = isNaN(h) ? 9 : h;
   m = isNaN(m) ? 0 : m;
 
   let refH: number | undefined = undefined;
   if (referenceStartTime) {
-    const [startH] = referenceStartTime.split(':').map(Number);
-    refH = isNaN(startH) ? undefined : startH;
+    const refParts = referenceStartTime.trim().split(':');
+    const parsedRefH = parseInt(refParts[0], 10);
+    refH = isNaN(parsedRefH) ? undefined : parsedRefH;
   }
 
   h = normalizeHour(h, refH);
@@ -45,8 +53,16 @@ export function getSlotMinutes(startTime: string, endTime: string): { startMin: 
   let s = timeToMinutes(normStart);
   let e = timeToMinutes(normEnd);
   if (e <= s) {
-    // Fallback if still invalid: minimum 1 hour duration
-    e = Math.min(24 * 60, s + 60);
+    // If end is still <= start, assume it crossed midday or 12h:
+    const [startH] = normStart.split(':').map(Number);
+    let [endH, endM] = normEnd.split(':').map(Number);
+    if (endH <= 12 && endH + 12 > startH) {
+      endH += 12;
+      e = endH * 60 + endM;
+    } else {
+      // Fallback: minimum 1 hour duration
+      e = Math.min(24 * 60, s + 60);
+    }
   }
   return { startMin: s, endMin: e };
 }
@@ -123,7 +139,7 @@ export function computeDayActivitiesLayout(
 ): ActivityLayout[] {
   if (activities.length === 0) return [];
 
-  // Sort activities by start time
+  // Sort activities by start time using getSlotMinutes for robust 12h/24h handling
   const sorted = [...activities].sort((a, b) => {
     const sA = getSlotMinutes(a.startTime, a.endTime).startMin;
     const sB = getSlotMinutes(b.startTime, b.endTime).startMin;
