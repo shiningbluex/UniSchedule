@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Clock,
   RotateCcw,
+  BookOpen,
 } from 'lucide-react';
 import type {
   Course,
@@ -21,7 +22,10 @@ import type {
 import { DAYS_CONFIG } from '../types/schedule';
 import type { SimulationOptions } from '../utils/simulator';
 import { generateCombinations } from '../utils/simulator';
-import { timeToMinutes } from '../utils/time';
+import {
+  computeDayActivitiesLayout,
+  formatSectionDaysSummary,
+} from '../utils/time';
 import confetti from 'canvas-confetti';
 
 interface SemesterSimulatorProps {
@@ -39,11 +43,12 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
     courses.map((c) => c.id)
   );
 
+  // 'all' = Cualquiera (no filtra por mañana o tarde, evalúa días completos de comisiones)
   const [timePreference, setTimePreference] = useState<'all' | 'morning' | 'afternoon'>('all');
   const [freeDayPreference, setFreeDayPreference] = useState<DayOfWeek | 'none'>('none');
-  const [onlyZeroClashes, setOnlyZeroClashes] = useState(true);
+  const [onlyZeroClashes, setOnlyZeroClashes] = useState(false); // default false so all possibilities with superposed clashes can be seen!
 
-  // Simulation calculation state
+  // Calculation state
   const [hasCalculated, setHasCalculated] = useState(false);
   const [isCalculating, setIsCalculating] = useState(false);
   const [selectedComboIndex, setSelectedComboIndex] = useState(0);
@@ -60,13 +65,13 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
     return courses.filter((c) => selectedCourseIds.includes(c.id));
   }, [courses, selectedCourseIds]);
 
-  // All calculated combinations
+  // Generate combinations
   const combinations = useMemo(() => {
     if (!hasCalculated && selectedCoursesList.length === 0) return [];
     const options: SimulationOptions = {
       freeDayPreference,
       timePreference,
-      maxCombinations: 60,
+      maxCombinations: 80,
     };
     const list = generateCombinations(selectedCoursesList, options);
     if (onlyZeroClashes) {
@@ -75,14 +80,12 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
     return list;
   }, [hasCalculated, selectedCoursesList, freeDayPreference, timePreference, onlyZeroClashes]);
 
-  // Active combo currently being inspected
   const activeCombo = useMemo(() => {
     if (!combinations.length) return null;
     const safeIndex = Math.min(Math.max(0, selectedComboIndex), combinations.length - 1);
     return combinations[safeIndex];
   }, [combinations, selectedComboIndex]);
 
-  // Trigger automatic calculation button
   const handleCalculateCombinations = () => {
     setIsCalculating(true);
     setTimeout(() => {
@@ -90,28 +93,25 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
       setSelectedComboIndex(0);
       setIsCalculating(false);
       confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
-    }, 400);
+    }, 350);
   };
 
-  // Set as definitive schedule
   const handleSetAsDefinitive = (combo: ScheduleCombination) => {
     onApplyCombination(combo, false);
     confetti({ particleCount: 90, spread: 80, origin: { y: 0.7 } });
     onSelectTab('horario');
   };
 
-  // Save as alternate option
   const handleSaveAsDraft = (combo: ScheduleCombination) => {
     onApplyCombination(combo, true);
     confetti({ particleCount: 60, spread: 60, origin: { y: 0.7 } });
     onSelectTab('planes');
   };
 
-  // Days visible in mini calendar
   const visibleDays = DAYS_CONFIG.filter((d) => d.id !== 'domingo');
   const startHour = 7;
   const endHour = 20;
-  const hourRowHeight = 36;
+  const hourRowHeight = 40;
   const hoursRange: number[] = [];
   for (let h = startHour; h <= endHour; h++) {
     hoursRange.push(h);
@@ -128,14 +128,13 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
               <span>Simulador Inteligente de Semestre</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-              Calcula y prueba todas las combinaciones de horarios
+              Calcula y prueba todas las combinaciones de comisiones
             </h2>
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Selecciona las materias que deseas cursar y presiona el botón para calcular automáticamente todas las opciones posibles de comisiones sin choques. Luego podrás verlas en el calendario y decidir cuál dejar como tu horario definitivo.
+              En la opción <strong>Cualquiera</strong> se evalúan las comisiones en sus <strong>días completos</strong> sin importar si son de mañana o tarde. Si dos materias chocan, se <strong>sobreponen en el calendario con un tono más oscuro</strong> para que las notes de inmediato.
             </p>
           </div>
 
-          {/* Big Action Button in Header */}
           <div className="flex flex-col sm:flex-row items-center gap-3">
             <button
               onClick={handleCalculateCombinations}
@@ -155,12 +154,12 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
             </button>
 
             {hasCalculated && (
-              <div className="bg-[#1b2238] border border-slate-700/80 px-4 py-2.5 rounded-xl text-center min-w-[120px]">
+              <div className="bg-[#1b2238] border border-slate-700/80 px-4 py-2.5 rounded-xl text-center min-w-[130px]">
                 <span className="text-2xl font-black text-emerald-400 block">
                   {combinations.length}
                 </span>
                 <span className="text-[11px] font-medium text-slate-400">
-                  Opciones sin choques
+                  {onlyZeroClashes ? 'Sin Choques' : 'Opciones Encontradas'}
                 </span>
               </div>
             )}
@@ -171,12 +170,12 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Filters and Course Selection */}
         <div className="lg:col-span-4 space-y-5">
-          {/* Materias a Simular */}
+          {/* Materias a Simular y sus Comisiones Completas */}
           <div className="bg-[#111622] border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-white text-sm flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-emerald-400" />
-                Materias a Simular ({selectedCoursesList.length}/{courses.length})
+                Materias y Días de Comisiones ({selectedCoursesList.length}/{courses.length})
               </h3>
               <button
                 onClick={() =>
@@ -190,42 +189,49 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
               </button>
             </div>
 
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+            <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
               {courses.map((course) => {
                 const isSelected = selectedCourseIds.includes(course.id);
                 return (
                   <div
                     key={course.id}
                     onClick={() => toggleCourseSelection(course.id)}
-                    className={`p-3 rounded-xl border transition cursor-pointer flex items-center justify-between ${
+                    className={`p-3 rounded-xl border transition cursor-pointer space-y-1.5 ${
                       isSelected
                         ? 'bg-slate-800/80 border-slate-700 shadow-sm'
                         : 'bg-[#151a2d]/50 border-slate-800/80 opacity-60 hover:opacity-90'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div
-                        className="w-3.5 h-3.5 rounded-full flex-shrink-0"
-                        style={{ backgroundColor: course.color }}
-                      />
-                      <div className="truncate">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className="w-3.5 h-3.5 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: course.color }}
+                        />
                         <div className="font-semibold text-xs text-white truncate">
                           {course.name}
                         </div>
-                        <div className="text-[10px] text-slate-400">
-                          {course.sections.length} comisión(es) disponible(s)
-                        </div>
+                      </div>
+
+                      <div
+                        className={`w-5 h-5 rounded-md flex items-center justify-center border transition flex-shrink-0 ${
+                          isSelected
+                            ? 'bg-emerald-600 border-emerald-500 text-white'
+                            : 'border-slate-700 bg-slate-900'
+                        }`}
+                      >
+                        {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
                       </div>
                     </div>
 
-                    <div
-                      className={`w-5 h-5 rounded-md flex items-center justify-center border transition ${
-                        isSelected
-                          ? 'bg-emerald-600 border-emerald-500 text-white'
-                          : 'border-slate-700 bg-slate-900'
-                      }`}
-                    >
-                      {isSelected && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                    {/* Show commission days completely */}
+                    <div className="text-[11px] text-slate-400 pl-6 space-y-1">
+                      {course.sections.map((sec) => (
+                        <div key={sec.id} className="text-[10px] text-slate-300 bg-slate-900/60 px-2 py-0.5 rounded border border-slate-800/80">
+                          <span className="font-bold text-emerald-400">{sec.name}:</span>{' '}
+                          <span>{formatSectionDaysSummary(sec)}</span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 );
@@ -237,25 +243,25 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
           <div className="bg-[#111622] border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
             <h3 className="font-bold text-white text-sm flex items-center gap-2">
               <Filter className="w-4 h-4 text-purple-400" />
-              Preferencias de Simulación
+              Preferencias
             </h3>
 
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1.5">
-                Turno Preferido:
+                Preferencia de Turno:
               </label>
               <div className="grid grid-cols-3 gap-1.5 text-xs">
                 {[
-                  { id: 'all', label: 'Cualquiera' },
-                  { id: 'morning', label: 'Mañanas' },
-                  { id: 'afternoon', label: 'Tardes' },
+                  { id: 'all', label: 'Cualquiera (Días Completos)' },
+                  { id: 'morning', label: 'Solo Mañanas' },
+                  { id: 'afternoon', label: 'Solo Tardes' },
                 ].map((opt) => (
                   <button
                     key={opt.id}
                     onClick={() => setTimePreference(opt.id as any)}
-                    className={`py-2 px-1 text-center rounded-lg font-medium transition border ${
+                    className={`py-2 px-1 text-center rounded-lg font-medium transition border text-[11px] ${
                       timePreference === opt.id
-                        ? 'bg-purple-600 border-purple-500 text-white'
+                        ? 'bg-purple-600 border-purple-500 text-white shadow'
                         : 'bg-[#181f33] border-slate-700 text-slate-400 hover:text-white'
                     }`}
                   >
@@ -263,6 +269,11 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                   </button>
                 ))}
               </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                {timePreference === 'all'
+                  ? '✓ Muestra todas las combinaciones reales de comisiones sin sesgo por turno.'
+                  : `Filtrando comisiones principalmente de ${timePreference === 'morning' ? 'mañana' : 'tarde'}.`}
+              </p>
             </div>
 
             <div>
@@ -284,7 +295,7 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-slate-800">
-              <span className="text-xs text-slate-300">Solo combinaciones con 0 choques</span>
+              <span className="text-xs text-slate-300">Filtrar únicamente opciones con 0 choques</span>
               <button
                 type="button"
                 onClick={() => setOnlyZeroClashes(!onlyZeroClashes)}
@@ -322,7 +333,7 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                   Listo para calcular combinaciones
                 </h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Seleccionaste {selectedCoursesList.length} materias. Haz clic en el botón para que el algoritmo pruebe todas las comisiones y te muestre los horarios sin choques.
+                  Seleccionaste {selectedCoursesList.length} materias. Al hacer clic en el botón, el simulador probará las comisiones y te mostrará el calendario con los bloques superpuestos si existe algún choque.
                 </p>
               </div>
               <button
@@ -343,12 +354,12 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                 No se encontraron combinaciones con estos filtros
               </h4>
               <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Prueba a desactivar el día libre preferido o permitir cualquier turno para ver más opciones disponibles.
+                Prueba a desactivar el día libre preferido o el filtro de 0 choques para ver más opciones disponibles con materias superpuestas.
               </p>
             </div>
           ) : (
             <>
-              {/* Combinations Navigator Carousel */}
+              {/* Combinations Selector Carousel */}
               <div className="bg-[#111622] border border-slate-800 rounded-2xl p-4 shadow-xl space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -358,22 +369,21 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                     {activeCombo?.clashesCount === 0 ? (
                       <span className="text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
                         <CheckCircle2 className="w-3 h-3" />
-                        0 Choques
+                        0 Choques (100% Compatible)
                       </span>
                     ) : (
-                      <span className="text-[10px] font-bold bg-rose-500/20 text-rose-400 px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" />
-                        {activeCombo?.clashesCount} Choque
+                      <span className="text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 text-rose-400" />
+                        {activeCombo?.clashesCount} Choque(s) superpuesto(s)
                       </span>
                     )}
-                    {selectedComboIndex === 0 && (
+                    {selectedComboIndex === 0 && activeCombo?.clashesCount === 0 && (
                       <span className="text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">
                         ⭐ MEJOR BALANCE
                       </span>
                     )}
                   </div>
 
-                  {/* Navigation Arrows */}
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() =>
@@ -401,27 +411,32 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                   </div>
                 </div>
 
-                {/* Quick pills of combinations to click */}
+                {/* Quick pills of combinations */}
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  {combinations.slice(0, 15).map((combo, idx) => {
+                  {combinations.slice(0, 20).map((combo, idx) => {
                     const isSelected = selectedComboIndex === idx;
+                    const hasClash = combo.clashesCount > 0;
                     return (
                       <button
                         key={combo.id}
                         onClick={() => setSelectedComboIndex(idx)}
-                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition border ${
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition border flex items-center gap-1.5 ${
                           isSelected
                             ? 'bg-purple-600 border-purple-500 text-white shadow-md shadow-purple-950/50'
-                            : 'bg-[#151a2d] border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                            : hasClash
+                            ? 'bg-[#151a2d] border-rose-900/60 text-slate-300 hover:text-white'
+                            : 'bg-[#151a2d] border-slate-800 text-slate-400 hover:text-slate-200'
                         }`}
                       >
-                        {idx === 0 ? '⭐ Opción 1' : `Opción ${idx + 1}`}
+                        <span>{idx === 0 ? '⭐ Opción 1' : `Opción ${idx + 1}`}</span>
+                        {hasClash && (
+                          <span className="w-2 h-2 rounded-full bg-rose-500" title="Contiene choque superpuesto" />
+                        )}
                       </button>
                     );
                   })}
                 </div>
 
-                {/* Metrics bar of active combination */}
                 {activeCombo && (
                   <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-800/80 text-center text-xs">
                     <div className="bg-[#151a2d] p-2 rounded-xl">
@@ -442,7 +457,7 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                 )}
               </div>
 
-              {/* CALENDAR VISUAL PREVIEW OF ACTIVE COMBINATION */}
+              {/* CALENDAR VISUAL PREVIEW OF ACTIVE COMBINATION WITH SUPERPOSED CLASHES */}
               {activeCombo && (
                 <div className="bg-[#0f131f] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl space-y-4">
                   {/* Calendar Header with Definitive Button */}
@@ -450,16 +465,22 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                     <div>
                       <h4 className="text-base font-bold text-white flex items-center gap-2">
                         <span>Horario de la {activeCombo.name}</span>
-                        <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-semibold">
-                          Previsualización
-                        </span>
+                        {activeCombo.clashesCount > 0 ? (
+                          <span className="text-xs bg-rose-500/20 text-rose-300 border border-rose-500/40 px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                            {activeCombo.clashesCount} Choque(s) superpuesto(s) en oscuro
+                          </span>
+                        ) : (
+                          <span className="text-xs bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-semibold">
+                            Horario 100% Compatible
+                          </span>
+                        )}
                       </h4>
                       <p className="text-xs text-slate-400 mt-0.5">
-                        Así se verá tu semana si eliges esta opción.
+                        Si dos materias coinciden, el bloque que choca se sobrepone con un color más oscuro.
                       </p>
                     </div>
 
-                    {/* Action buttons */}
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleSaveAsDraft(activeCombo)}
@@ -480,7 +501,7 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                     </div>
                   </div>
 
-                  {/* Interactive Visual Timetable Grid */}
+                  {/* Interactive Visual Timetable Grid with Superposition */}
                   <div className="overflow-x-auto px-4 pb-4">
                     <div className="min-w-[620px] select-none border border-slate-800/80 rounded-xl overflow-hidden">
                       {/* Days Header */}
@@ -500,7 +521,6 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
 
                       {/* Timetable Body */}
                       <div className="relative grid grid-cols-[60px_repeat(6,1fr)] bg-[#0d101a]">
-                        {/* Hours column */}
                         <div className="border-r border-slate-800/80 bg-[#0c0e18]">
                           {hoursRange.map((hour) => (
                             <div
@@ -513,10 +533,14 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                           ))}
                         </div>
 
-                        {/* Day columns with blocks */}
                         {visibleDays.map((day) => {
                           const dayActs = activeCombo.activities.filter(
                             (a) => a.day === day.id
+                          );
+                          const dayLayouts = computeDayActivitiesLayout(
+                            dayActs,
+                            startHour,
+                            hourRowHeight
                           );
 
                           return (
@@ -525,7 +549,6 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                               style={{ height: `${hoursRange.length * hourRowHeight}px` }}
                               className="relative border-r border-slate-800/60 last:border-r-0"
                             >
-                              {/* Guidelines */}
                               {hoursRange.map((hour) => (
                                 <div
                                   key={hour}
@@ -534,42 +557,66 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                                 />
                               ))}
 
-                              {/* Activity Cards */}
-                              {dayActs.map((act) => {
-                                const startMin = timeToMinutes(act.startTime);
-                                const endMin = timeToMinutes(act.endTime);
-                                const dayStartMin = startHour * 60;
-
-                                const topPx =
-                                  ((startMin - dayStartMin) / 60) * hourRowHeight;
-                                const heightPx = Math.max(
-                                  28,
-                                  ((endMin - startMin) / 60) * hourRowHeight
-                                );
+                              {/* Superposed Activity Cards */}
+                              {dayLayouts.map((layout) => {
+                                const act = layout.activity;
 
                                 return (
                                   <div
                                     key={act.id}
                                     style={{
-                                      top: `${topPx}px`,
-                                      height: `${heightPx}px`,
+                                      top: `${layout.topPx}px`,
+                                      height: `${layout.heightPx}px`,
+                                      left: `${layout.leftPercent}%`,
+                                      width: `${layout.widthPercent}%`,
+                                      zIndex: layout.zIndex,
                                       backgroundColor: act.color,
+                                      filter: layout.isDarkened
+                                        ? 'brightness(0.65) saturate(1.2)'
+                                        : undefined,
                                     }}
-                                    className="absolute left-1 right-1 rounded-lg p-1.5 text-white shadow-md overflow-hidden flex flex-col justify-between hover:scale-[1.02] transition"
+                                    title={
+                                      layout.hasClash
+                                        ? `⚠️ Choque con: ${layout.clashingWith.map((c) => c.title).join(', ')}`
+                                        : `${act.title} (${act.startTime} - ${act.endTime})`
+                                    }
+                                    className={`absolute rounded-xl p-2 text-white shadow-xl overflow-hidden flex flex-col justify-between transition-all duration-200 transform hover:scale-[1.04] hover:z-50 hover:filter-none cursor-pointer group ${
+                                      layout.hasClash
+                                        ? 'ring-2 ring-rose-500 ring-offset-1 ring-offset-[#0d101a]'
+                                        : 'hover:ring-1 hover:ring-white/40'
+                                    }`}
                                   >
-                                    <div>
-                                      <div className="font-bold text-[11px] leading-tight line-clamp-2 drop-shadow-sm">
-                                        {act.title}
+                                    {/* Darker overlay on the superposed overlapping block */}
+                                    {layout.isDarkened && (
+                                      <div className="absolute inset-0 bg-black/30 pointer-events-none rounded-xl" />
+                                    )}
+
+                                    <div className="relative z-10 space-y-0.5">
+                                      <div className="flex items-start justify-between gap-1">
+                                        <div className="font-bold text-[11px] leading-tight line-clamp-2 drop-shadow-sm">
+                                          {act.title}
+                                        </div>
+                                        {layout.hasClash && (
+                                          <span
+                                            title="¡Choque de horario superpuesto!"
+                                            className="bg-rose-950/90 text-rose-300 text-[8px] font-bold px-1 py-0.2 rounded flex items-center gap-0.5 flex-shrink-0"
+                                          >
+                                            <AlertTriangle className="w-2 h-2 text-rose-400" />
+                                            <span>Choque</span>
+                                          </span>
+                                        )}
                                       </div>
-                                      <div className="flex items-center gap-1 text-[10px] text-white/90 font-mono mt-0.5">
+
+                                      <div className="flex items-center gap-1 text-[10px] text-white/90 font-mono">
                                         <Clock className="w-2.5 h-2.5" />
                                         <span>
                                           {act.startTime} - {act.endTime}
                                         </span>
                                       </div>
                                     </div>
+
                                     {act.classroom && (
-                                      <div className="text-[9px] text-white/80 truncate">
+                                      <div className="text-[9px] text-white/80 truncate relative z-10">
                                         {act.classroom}
                                       </div>
                                     )}
@@ -583,18 +630,20 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                     </div>
                   </div>
 
-                  {/* List of sections in active combination */}
-                  <div className="px-5 pb-5 space-y-2">
-                    <span className="text-xs font-semibold text-slate-300">
-                      Comisiones asignadas en esta opción:
+                  {/* List of sections with their COMPLETE DAYS */}
+                  <div className="px-5 pb-5 space-y-3">
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <BookOpen className="w-4 h-4 text-purple-400" />
+                      Comisiones asignadas en esta opción (Días Completos):
                     </span>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                       {activeCombo.sections.map(({ course, section }) => (
                         <div
                           key={`${course.id}-${section.id}`}
-                          className="bg-[#141a2c] border border-slate-800 rounded-xl p-3 flex items-center justify-between"
+                          className="bg-[#141a2c] border border-slate-800 rounded-xl p-3 flex flex-col justify-between space-y-1.5"
                         >
-                          <div className="min-w-0 pr-2">
+                          <div>
                             <div className="flex items-center gap-2">
                               <span
                                 className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -604,26 +653,32 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                                 {course.name}
                               </span>
                             </div>
-                            <div className="text-[11px] text-purple-300 font-medium mt-0.5 truncate">
+                            <div className="text-[11px] text-purple-300 font-semibold mt-0.5">
                               {section.name} {section.professor ? `• ${section.professor}` : ''}
                             </div>
                           </div>
 
-                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                            {section.slots.map((s, idx) => (
-                              <span
-                                key={idx}
-                                className="text-[10px] bg-slate-900 border border-slate-700 text-slate-300 px-2 py-0.5 rounded"
-                              >
-                                {s.day.slice(0, 3).toUpperCase()} {s.startTime}-{s.endTime}
-                              </span>
-                            ))}
+                          {/* Full Days Breakdown */}
+                          <div className="pt-1.5 border-t border-slate-800/80">
+                            <span className="text-[10px] text-slate-400 block mb-1">
+                              Cursada completa de la comisión:
+                            </span>
+                            <div className="flex flex-wrap gap-1">
+                              {section.slots.map((s, idx) => (
+                                <span
+                                  key={idx}
+                                  className="text-[10px] bg-slate-900 border border-slate-700/80 text-emerald-300 font-medium px-2 py-0.5 rounded"
+                                >
+                                  {s.day.toUpperCase()} {s.startTime}-{s.endTime}
+                                  {s.classroom ? ` (${s.classroom})` : ''}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
 
-                    {/* Bottom CTA Button */}
                     <div className="pt-3 flex justify-end">
                       <button
                         onClick={() => handleSetAsDefinitive(activeCombo)}
