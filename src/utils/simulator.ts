@@ -71,16 +71,20 @@ export function generateCombinations(
   const withClashes = evaluatedCombos.filter((c) => c.clashesCount > 0);
 
   const sortFn = (a: ScheduleCombination, b: ScheduleCombination) => {
+    // 1. Clashes count
     if (a.clashesCount !== b.clashesCount) {
       return a.clashesCount - b.clashesCount;
     }
 
+    // 2. Free day preference
     if (options.freeDayPreference && options.freeDayPreference !== 'none') {
       const aHasFree = !a.activities.some((act) => act.day === options.freeDayPreference);
       const bHasFree = !b.activities.some((act) => act.day === options.freeDayPreference);
       if (aHasFree !== bHasFree) return aHasFree ? -1 : 1;
     }
 
+    // 3. Time preference: Only filter by morning/afternoon if explicitly requested!
+    // When "all" / cualquiera is selected, do NOT filter or favor morning vs afternoon
     if (options.timePreference === 'morning') {
       const aMorningCount = a.activities.filter(
         (act) => timeToMinutes(act.startTime) < 780
@@ -99,17 +103,20 @@ export function generateCombinations(
       if (aAfternoonCount !== bAfternoonCount) return bAfternoonCount - aAfternoonCount;
     }
 
+    // 4. Compactness (lowest dead gap hours)
     if (a.gapHours !== b.gapHours) {
       return a.gapHours - b.gapHours;
     }
 
+    // 5. Free days count
     return b.freeDaysCount - a.freeDaysCount;
   };
 
   validNoClash.sort(sortFn);
   withClashes.sort(sortFn);
 
+  // Return non-clashing first, followed by clashing options so the user can inspect all
   const sorted = [...validNoClash, ...withClashes];
-  const limit = options.maxCombinations || 50;
+  const limit = options.maxCombinations || 60;
   return sorted.slice(0, limit);
 }

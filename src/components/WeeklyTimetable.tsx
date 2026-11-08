@@ -17,7 +17,11 @@ import type {
   Course,
 } from '../types/schedule';
 import { DAYS_CONFIG } from '../types/schedule';
-import { timeToMinutes, findScheduleClashes, calculateScheduleMetrics } from '../utils/time';
+import {
+  findScheduleClashes,
+  calculateScheduleMetrics,
+  computeDayActivitiesLayout,
+} from '../utils/time';
 import { downloadICSFile } from '../utils/icsExport';
 import { toPng } from 'html-to-image';
 import confetti from 'canvas-confetti';
@@ -104,7 +108,7 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
               ) : (
                 <span className="text-[11px] font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
                   <AlertTriangle className="w-3 h-3" />
-                  {Math.ceil(clashMap.size / 2)} Choque(s)
+                  {Math.ceil(clashMap.size / 2)} Choque(s) detectado(s)
                 </span>
               )}
             </div>
@@ -118,9 +122,9 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={onOpenSimulator}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-950/50 transition hover:scale-102"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-md shadow-indigo-950/50 transition hover:scale-102"
           >
-            <Sparkles className="w-3.5 h-3.5" />
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
             <span>Simulador de Combinaciones</span>
           </button>
 
@@ -153,7 +157,7 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
         </div>
       </div>
 
-      {/* Main Timetable Card (Matching screenshot) */}
+      {/* Main Timetable Card */}
       <div
         ref={timetableRef}
         className="bg-[#0f131f] border border-slate-800/90 rounded-2xl overflow-hidden shadow-2xl relative"
@@ -168,7 +172,7 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
                 Mi Horario Semanal
               </h3>
               <p className="text-xs text-slate-400">
-                De {startHour}:00 a {endHour}:00. Las materias multidía se gestionan como un solo bloque.
+                De {startHour}:00 a {endHour}:00. Las materias multidía se gestionan como un solo bloque. Si chocan, se superponen con tono oscuro.
               </p>
             </div>
           </div>
@@ -287,6 +291,11 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
                 .filter((d) => (selectedMobileDay === 'all' ? true : d.id === selectedMobileDay))
                 .map((day) => {
                   const dayActivities = activities.filter((act) => act.day === day.id);
+                  const dayLayouts = computeDayActivitiesLayout(
+                    dayActivities,
+                    startHour,
+                    hourRowHeight
+                  );
 
                   return (
                     <div
@@ -296,6 +305,7 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
                         height: `${(endHour - startHour + 1) * hourRowHeight}px`,
                       }}
                     >
+                      {/* Grid guidelines */}
                       {hoursRange.map((hour) => (
                         <div
                           key={hour}
@@ -311,41 +321,53 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
                         </div>
                       ))}
 
-                      {dayActivities.map((act) => {
-                        const startMin = timeToMinutes(act.startTime);
-                        const endMin = timeToMinutes(act.endTime);
-                        const dayStartMin = startHour * 60;
-
-                        const topPx = ((startMin - dayStartMin) / 60) * hourRowHeight;
-                        const heightPx = Math.max(34, ((endMin - startMin) / 60) * hourRowHeight);
-                        const hasClash = clashMap.has(act.id);
+                      {/* Render superposed activity blocks */}
+                      {dayLayouts.map((layout) => {
+                        const act = layout.activity;
 
                         return (
                           <div
                             key={act.id}
                             onClick={() => onEditActivity(act)}
                             style={{
-                              top: `${topPx}px`,
-                              height: `${heightPx}px`,
+                              top: `${layout.topPx}px`,
+                              height: `${layout.heightPx}px`,
+                              left: `${layout.leftPercent}%`,
+                              width: `${layout.widthPercent}%`,
+                              zIndex: layout.zIndex,
                               backgroundColor: act.color,
+                              filter: layout.isDarkened
+                                ? 'brightness(0.68) saturate(1.15)'
+                                : undefined,
                             }}
-                            className={`absolute left-1 right-1 rounded-xl p-2.5 text-white shadow-lg cursor-pointer transition-all duration-150 transform hover:scale-[1.01] hover:z-30 overflow-hidden flex flex-col justify-between group ${
-                              hasClash
-                                ? 'ring-2 ring-rose-500 ring-offset-2 ring-offset-[#0f131f] animate-pulse'
+                            title={
+                              layout.hasClash
+                                ? `⚠️ Conflicto de horario: Superpuesto con ${layout.clashingWith.map((c) => c.title).join(', ')}`
+                                : `${act.title} (${act.startTime} - ${act.endTime})`
+                            }
+                            className={`absolute rounded-xl p-2.5 text-white shadow-xl cursor-pointer transition-all duration-200 transform hover:scale-[1.04] hover:z-50 hover:filter-none overflow-hidden flex flex-col justify-between group ${
+                              layout.hasClash
+                                ? 'ring-2 ring-rose-500 ring-offset-2 ring-offset-[#0f131f] shadow-rose-950/60'
                                 : 'hover:ring-2 hover:ring-white/40'
                             }`}
                           >
-                            <div className="space-y-1">
+                            {/* Subtle dark tint overlay for the superposed block */}
+                            {layout.isDarkened && (
+                              <div className="absolute inset-0 bg-black/30 pointer-events-none rounded-xl" />
+                            )}
+
+                            <div className="space-y-1 relative z-10">
                               <div className="flex items-start justify-between gap-1">
                                 <h4 className="font-bold text-xs leading-tight line-clamp-2 drop-shadow-sm">
                                   {act.title}
                                 </h4>
-                                {hasClash && (
+                                {layout.hasClash && (
                                   <span
-                                    title="¡Conflicto de horario!"
-                                    className="bg-rose-950/80 text-rose-300 p-0.5 rounded"
+                                    title={`¡Conflicto con ${layout.clashingWith.map((c) => c.title).join(', ')}!`}
+                                    className="bg-rose-950/90 text-rose-300 px-1 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5 shadow flex-shrink-0"
                                   >
-                                    <AlertTriangle className="w-3.5 h-3.5" />
+                                    <AlertTriangle className="w-2.5 h-2.5 text-rose-400" />
+                                    <span>Choque</span>
                                   </span>
                                 )}
                               </div>
@@ -365,7 +387,7 @@ export const WeeklyTimetable: React.FC<WeeklyTimetableProps> = ({
                               )}
                             </div>
 
-                            <div className="flex items-center justify-end pt-1">
+                            <div className="flex items-center justify-end pt-1 relative z-10">
                               <button
                                 type="button"
                                 onClick={(e) => {
