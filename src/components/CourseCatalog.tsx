@@ -18,6 +18,7 @@ import {
   DAYS_CONFIG,
   PRESET_COLORS,
 } from '../types/schedule';
+import { normalizeTimeString } from '../utils/time';
 
 interface CourseCatalogProps {
   courses: Course[];
@@ -117,7 +118,15 @@ export const CourseCatalog: React.FC<CourseCatalogProps> = ({
       id: `sec-${Date.now()}`,
       name: sectionName.trim() || `Comisión ${selectedCourseForSection.sections.length + 1}`,
       professor: sectionProfessor.trim() || undefined,
-      slots: sectionSlots,
+      slots: sectionSlots.map((s) => {
+        const normStart = normalizeTimeString(s.startTime);
+        const normEnd = normalizeTimeString(s.endTime, normStart);
+        return {
+          ...s,
+          startTime: normStart,
+          endTime: normEnd,
+        };
+      }),
     };
 
     setCourses(
@@ -482,7 +491,7 @@ export const CourseCatalog: React.FC<CourseCatalogProps> = ({
                       </div>
 
                       <div>
-                        <label className="block text-[10px] text-slate-400 mb-0.5">Fin</label>
+                        <label className="block text-[10px] text-slate-400 mb-0.5">Fin (24h)</label>
                         <input
                           type="time"
                           value={slot.endTime}
@@ -491,10 +500,22 @@ export const CourseCatalog: React.FC<CourseCatalogProps> = ({
                             updated[idx].endTime = e.target.value;
                             setSectionSlots(updated);
                           }}
+                          onBlur={(e) => {
+                            // If user picked 01:00 or 02:00 meaning 1 PM or 2 PM, auto convert
+                            const norm = normalizeTimeString(e.target.value, slot.startTime);
+                            if (norm !== slot.endTime) {
+                              const updated = [...sectionSlots];
+                              updated[idx].endTime = norm;
+                              setSectionSlots(updated);
+                            }
+                          }}
                           className="w-full bg-[#1b2238] border border-slate-700 rounded px-2 py-1 text-xs text-slate-200"
                         />
                       </div>
                     </div>
+                    <p className="text-[10px] text-slate-500">
+                      💡 Tip: Para la tarde usa formato 24h (1:00 PM = 13:00, 2:00 PM = 14:00). Se ajusta automáticamente si eliges 01:00 o 02:00.
+                    </p>
                   </div>
                 ))}
               </div>

@@ -14,13 +14,47 @@ import type {
   ScheduleCombination,
 } from './types/schedule';
 import { INITIAL_COURSES, createDefaultInitialPlan } from './utils/initialData';
-import { findScheduleClashes } from './utils/time';
+import { findScheduleClashes, normalizeTimeString } from './utils/time';
 
 const LOCAL_STORAGE_KEY_PLANS = 'unihorario_plans_v1';
 const LOCAL_STORAGE_KEY_COURSES = 'unihorario_courses_v1';
 const LOCAL_STORAGE_KEY_ACTIVE_PLAN = 'unihorario_active_plan_v1';
 const LOCAL_STORAGE_KEY_USER = 'unihorario_username_v1';
 const LOCAL_STORAGE_KEY_THEME = 'unihorario_theme_v1';
+
+// Helper to sanitize and normalize times (e.g. converting 11:00 - 01:00 to 11:00 - 13:00)
+function sanitizeCourseSlots(coursesList: Course[]): Course[] {
+  return coursesList.map((course) => ({
+    ...course,
+    sections: course.sections.map((sec) => ({
+      ...sec,
+      slots: sec.slots.map((slot) => {
+        const normStart = normalizeTimeString(slot.startTime);
+        const normEnd = normalizeTimeString(slot.endTime, normStart);
+        return {
+          ...slot,
+          startTime: normStart,
+          endTime: normEnd,
+        };
+      }),
+    })),
+  }));
+}
+
+function sanitizePlanActivities(plansList: SchedulePlan[]): SchedulePlan[] {
+  return plansList.map((plan) => ({
+    ...plan,
+    activities: plan.activities.map((act) => {
+      const normStart = normalizeTimeString(act.startTime);
+      const normEnd = normalizeTimeString(act.endTime, normStart);
+      return {
+        ...act,
+        startTime: normStart,
+        endTime: normEnd,
+      };
+    }),
+  }));
+}
 
 export function App() {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
@@ -37,21 +71,25 @@ export function App() {
   const [courses, setCourses] = useState<Course[]>(() => {
     try {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY_COURSES);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        return sanitizeCourseSlots(JSON.parse(saved));
+      }
     } catch (e) {
       console.error(e);
     }
-    return INITIAL_COURSES;
+    return sanitizeCourseSlots(INITIAL_COURSES);
   });
 
   const [plans, setPlans] = useState<SchedulePlan[]>(() => {
     try {
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY_PLANS);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        return sanitizePlanActivities(JSON.parse(saved));
+      }
     } catch (e) {
       console.error(e);
     }
-    return [createDefaultInitialPlan()];
+    return sanitizePlanActivities([createDefaultInitialPlan()]);
   });
 
   const [activePlanId, setActivePlanId] = useState<string>(() => {
@@ -95,10 +133,16 @@ export function App() {
   const currentClashes = findScheduleClashes(currentPlan.activities);
 
   const handleSaveActivity = (newActivitiesData: Omit<ScheduleActivity, 'id'>[]) => {
-    const newActivities: ScheduleActivity[] = newActivitiesData.map((data, index) => ({
-      ...data,
-      id: `act-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 4)}`,
-    }));
+    const newActivities: ScheduleActivity[] = newActivitiesData.map((data, index) => {
+      const normStart = normalizeTimeString(data.startTime);
+      const normEnd = normalizeTimeString(data.endTime, normStart);
+      return {
+        ...data,
+        startTime: normStart,
+        endTime: normEnd,
+        id: `act-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 4)}`,
+      };
+    });
 
     setPlans((prevPlans) =>
       prevPlans.map((p) => {
@@ -159,12 +203,22 @@ export function App() {
     combo: ScheduleCombination,
     createNewPlan = false
   ) => {
+    const sanitizedActs = combo.activities.map((act) => {
+      const normStart = normalizeTimeString(act.startTime);
+      const normEnd = normalizeTimeString(act.endTime, normStart);
+      return {
+        ...act,
+        startTime: normStart,
+        endTime: normEnd,
+      };
+    });
+
     if (createNewPlan) {
       const newPlan: SchedulePlan = {
         id: `plan-${Date.now()}`,
         name: `${combo.name} (Generado)`,
         createdAt: Date.now(),
-        activities: combo.activities,
+        activities: sanitizedActs,
         color: '#8b5cf6',
       };
       setPlans((prev) => [...prev, newPlan]);
@@ -175,7 +229,7 @@ export function App() {
           if (p.id === currentPlan.id) {
             return {
               ...p,
-              activities: combo.activities,
+              activities: sanitizedActs,
             };
           }
           return p;

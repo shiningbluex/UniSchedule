@@ -25,6 +25,7 @@ import { generateCombinations } from '../utils/simulator';
 import {
   computeDayActivitiesLayout,
   formatSectionDaysSummary,
+  normalizeTimeString,
 } from '../utils/time';
 import confetti from 'canvas-confetti';
 
@@ -610,7 +611,7 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                                       <div className="flex items-center gap-1 text-[10px] text-white/90 font-mono">
                                         <Clock className="w-2.5 h-2.5" />
                                         <span>
-                                          {act.startTime} - {act.endTime}
+                                          {normalizeTimeString(act.startTime)} - {normalizeTimeString(act.endTime, act.startTime)}
                                         </span>
                                       </div>
                                     </div>
@@ -664,15 +665,19 @@ export const SemesterSimulator: React.FC<SemesterSimulatorProps> = ({
                               Cursada completa de la comisión:
                             </span>
                             <div className="flex flex-wrap gap-1">
-                              {section.slots.map((s, idx) => (
-                                <span
-                                  key={idx}
-                                  className="text-[10px] bg-slate-900 border border-slate-700/80 text-emerald-300 font-medium px-2 py-0.5 rounded"
-                                >
-                                  {s.day.toUpperCase()} {s.startTime}-{s.endTime}
-                                  {s.classroom ? ` (${s.classroom})` : ''}
-                                </span>
-                              ))}
+                              {section.slots.map((s, idx) => {
+                                const normStart = normalizeTimeString(s.startTime);
+                                const normEnd = normalizeTimeString(s.endTime, normStart);
+                                return (
+                                  <span
+                                    key={idx}
+                                    className="text-[10px] bg-slate-900 border border-slate-700/80 text-emerald-300 font-medium px-2 py-0.5 rounded"
+                                  >
+                                    {s.day.toUpperCase()} {normStart}-{normEnd}
+                                    {s.classroom ? ` (${s.classroom})` : ''}
+                                  </span>
+                                );
+                              })}
                             </div>
                           </div>
                         </div>

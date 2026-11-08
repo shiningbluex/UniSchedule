@@ -18,6 +18,7 @@ import {
   DAYS_CONFIG,
   PRESET_COLORS,
 } from '../types/schedule';
+import { normalizeTimeString, getSlotMinutes } from '../utils/time';
 
 interface ActivityModalProps {
   isOpen: boolean;
@@ -109,7 +110,11 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
       setErrorMessage('Por favor ingresa el nombre de la materia o actividad.');
       return;
     }
-    if (startTime >= endTime) {
+    const normStart = normalizeTimeString(startTime);
+    const normEnd = normalizeTimeString(endTime, normStart);
+    const { startMin, endMin } = getSlotMinutes(normStart, normEnd);
+
+    if (startMin >= endMin) {
       setErrorMessage('La hora de inicio debe ser anterior a la hora de fin.');
       return;
     }
@@ -123,8 +128,8 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
     const activitiesToSave: Omit<ScheduleActivity, 'id'>[] = selectedDays.map((day) => ({
       title: title.trim(),
       day,
-      startTime,
-      endTime,
+      startTime: normStart,
+      endTime: normEnd,
       color,
       classroom: classroom.trim() || undefined,
       professor: professor.trim() || undefined,
@@ -251,13 +256,19 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1 flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5 text-slate-400" />
-                Hora Fin
+                Hora Fin (24h)
               </label>
               <input
                 type="time"
                 required
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
+                onBlur={(e) => {
+                  const norm = normalizeTimeString(e.target.value, startTime);
+                  if (norm !== endTime) {
+                    setEndTime(norm);
+                  }
+                }}
                 className="w-full bg-[#1b2238] border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-emerald-500"
               />
             </div>
