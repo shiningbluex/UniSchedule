@@ -1,11 +1,12 @@
 import type { Course, CourseSection, SchedulePlan, ScheduleActivity, TimeSlot } from '../types/schedule';
+import { normalizeTimeString } from './time';
 
 export const INITIAL_COURSES: Course[] = [
   {
     id: 'course-1',
     code: 'INF-301',
     name: 'Administración de bases de datos',
-    color: '#d946ef', // Magenta (matches screenshot)
+    color: '#d946ef',
     required: true,
     sections: [
       {
@@ -34,7 +35,7 @@ export const INITIAL_COURSES: Course[] = [
     id: 'course-2',
     code: 'DEP-101',
     name: 'Deporte',
-    color: '#06b6d4', // Cyan (matches screenshot)
+    color: '#06b6d4',
     required: true,
     sections: [
       {
@@ -69,7 +70,7 @@ export const INITIAL_COURSES: Course[] = [
     id: 'course-3',
     code: 'INF-204',
     name: 'Lenguajes de Programación',
-    color: '#ef4444', // Red / Coral (matches screenshot)
+    color: '#ef4444',
     required: true,
     sections: [
       {
@@ -98,7 +99,7 @@ export const INITIAL_COURSES: Course[] = [
     id: 'course-4',
     code: 'HUM-102',
     name: 'Divulgación científica',
-    color: '#6366f1', // Indigo / Purple (matches screenshot)
+    color: '#6366f1',
     required: true,
     sections: [
       {
@@ -123,7 +124,7 @@ export const INITIAL_COURSES: Course[] = [
     id: 'course-5',
     code: 'EDU-401',
     name: 'Diseño y prototipado de recursos educativos digitales',
-    color: '#8b5cf6', // Violet (matches screenshot)
+    color: '#8b5cf6',
     required: true,
     sections: [
       {
@@ -146,7 +147,7 @@ export const INITIAL_COURSES: Course[] = [
   },
 ];
 
-// Helper to convert course sections to activities
+// Helper to convert course sections to activities with robust time normalization
 export function createActivitiesFromCourseSections(
   selections: { course: Course; section: CourseSection }[]
 ): ScheduleActivity[] {
@@ -155,14 +156,16 @@ export function createActivitiesFromCourseSections(
   selections.forEach(({ course, section }) => {
     const groupKey = `${course.id}-${section.id}`;
     section.slots.forEach((slot: TimeSlot, idx: number) => {
+      const normStart = normalizeTimeString(slot.startTime);
+      const normEnd = normalizeTimeString(slot.endTime, normStart);
       activities.push({
         id: `act-${groupKey}-${idx}-${Date.now()}`,
         courseId: course.id,
         sectionId: section.id,
         title: course.name,
         day: slot.day,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
+        startTime: normStart,
+        endTime: normEnd,
         color: course.color,
         classroom: slot.classroom,
         professor: section.professor,
